@@ -193,12 +193,16 @@ class Sampling:
         return dists
 
     def get_predictions(self, clf_model, idx_set, dataset):
+        use_cuda = torch.cuda.is_available()
+        device = torch.device("cuda" if use_cuda else "cpu")
+
+        clf_model.to(device)
         tempIdxSetLoader = self.dataObj.getSequentialDataLoader(indexes=idx_set, batch_size=self.cfg.TRAIN.BATCH_SIZE, data=dataset)
         tempIdxSetLoader.dataset.no_aug = True
         preds = []
         for i, (x, _) in enumerate(tqdm(tempIdxSetLoader, desc="Collecting predictions in get_predictions function")):
             with torch.no_grad():
-                x = x.type(torch.FloatTensor)
+                x = x.to(device)
                 temp_pred = clf_model(x)
                 temp_pred = torch.nn.functional.softmax(temp_pred, dim=1)
                 preds.append(temp_pred.cpu().numpy())
@@ -238,47 +242,52 @@ class Sampling:
         return activeSet, uSet
 
     def bald(self, budgetSize, uSet, clf_model, dataset):
-        "Implements BALD acquisition function where we maximize information gain."
-        assert self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS != 0, "Expected dropout iterations > 0."
+      "Implements BALD acquisition function where we maximize information gain."
+      use_cuda = torch.cuda.is_available()
+      device = torch.device("cuda" if use_cuda else "cpu")
 
-        clf_model.train()
-        for m in clf_model.modules():
-            if isinstance(m, torch.nn.BatchNorm2d):
-                m.eval()
+      assert self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS != 0, "Expected dropout iterations > 0."
 
-        uSetLoader = self.dataObj.getSequentialDataLoader(indexes=uSet, batch_size=self.cfg.TRAIN.BATCH_SIZE, data=dataset)
-        uSetLoader.dataset.no_aug = True
-        n_uPts = len(uSet)
+      clf_model.to(device)
+      clf_model.train()
+      for m in clf_model.modules():
+          if isinstance(m, torch.nn.BatchNorm2d):
+              m.eval()
 
-        score_All = np.zeros(shape=(n_uPts, self.cfg.MODEL.NUM_CLASSES))
-        all_entropy_dropout = np.zeros(shape=(n_uPts))
+      uSetLoader = self.dataObj.getSequentialDataLoader(indexes=uSet, batch_size=self.cfg.TRAIN.BATCH_SIZE, data=dataset)
+      uSetLoader.dataset.no_aug = True
+      n_uPts = len(uSet)
 
-        for d in tqdm(range(self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS), desc="Dropout Iterations"):
-            dropout_score = self.get_predictions(clf_model=clf_model, idx_set=uSet, dataset=dataset)
-            score_All += dropout_score
+      score_All = np.zeros(shape=(n_uPts, self.cfg.MODEL.NUM_CLASSES))
+      all_entropy_dropout = np.zeros(shape=(n_uPts))
 
-            dropout_score_log = np.log2(dropout_score + 1e-6)
-            Entropy_Compute = -np.multiply(dropout_score, dropout_score_log)
-            Entropy_per_Dropout = np.sum(Entropy_Compute, axis=1)
-            all_entropy_dropout += Entropy_per_Dropout
+      for d in tqdm(range(self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS), desc="Dropout Iterations"):
+          dropout_score = self.get_predictions(clf_model=clf_model, idx_set=uSet, dataset=dataset)
+          score_All += dropout_score
 
-        Avg_Pi = np.divide(score_All, self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS)
-        Log_Avg_Pi = np.log2(Avg_Pi + 1e-6)
-        Entropy_Avg_Pi = -np.multiply(Avg_Pi, Log_Avg_Pi)
-        Entropy_Average_Pi = np.sum(Entropy_Avg_Pi, axis=1)
-        G_X = Entropy_Average_Pi
-        Average_Entropy = np.divide(all_entropy_dropout, self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS)
-        F_X = Average_Entropy
+          dropout_score_log = np.log2(dropout_score + 1e-6)
+          Entropy_Compute = -np.multiply(dropout_score, dropout_score_log)
+          Entropy_per_Dropout = np.sum(Entropy_Compute, axis=1)
+          all_entropy_dropout += Entropy_per_Dropout
 
-        U_X = G_X - F_X
-        sorted_idx = np.argsort(U_X)[::-1]
-        activeSet = sorted_idx[:budgetSize]
+      Avg_Pi = np.divide(score_All, self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS)
+      Log_Avg_Pi = np.log2(Avg_Pi + 1e-6)
+      Entropy_Avg_Pi = -np.multiply(Avg_Pi, Log_Avg_Pi)
+      Entropy_Average_Pi = np.sum(Entropy_Avg_Pi, axis=1)
+      G_X = Entropy_Average_Pi
+      Average_Entropy = np.divide(all_entropy_dropout, self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS)
+      F_X = Average_Entropy
 
-        activeSet = uSet[activeSet]
-        remainSet = uSet[sorted_idx[budgetSize:]]
-        clf_model.train()
-        uSetLoader.dataset.no_aug = False
-        return activeSet, remainSet
+      U_X = G_X - F_X
+      sorted_idx = np.argsort(U_X)[::-1]
+      activeSet = sorted_idx[:budgetSize]
+
+      activeSet = uSet[activeSet]
+      remainSet = uSet[sorted_idx[budgetSize:]]
+      clf_model.train()
+      uSetLoader.dataset.no_aug = False
+      return activeSet, remainSet
+
 
     def dbal(self, budgetSize, uSet, clf_model, dataset):
         """

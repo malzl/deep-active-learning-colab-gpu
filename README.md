@@ -1,3 +1,6 @@
+Original readme from the original authors. I simply extended this work to include BatchBALD.
+
+
 # Deep Active Learning Toolkit for Image Classification in PyTorch
 
 This is a code base for deep active learning for image classification written in [PyTorch](https://pytorch.org/). It is build on top of FAIR's [pycls](https://github.com/facebookresearch/pycls/). I want to emphasize that this is a derivative of the toolkit originally shared with me via email by Prateek Munjal _et al._, the authors of the paper _"Towards Robust and Reproducible Active Learning using Neural Networks"_, paper available [here](https://arxiv.org/abs/2002.09564).  

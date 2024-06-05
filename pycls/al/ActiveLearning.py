@@ -93,6 +93,10 @@ class ActiveLearning:
             # Do active sampling
             activeSet, uSet = adv_sampler.sample_for_labeling(vae=vae, discriminator=disc, \
                                 unlabeled_dataloader=uSet_loader, uSet=uSet)
+        elif self.cfg.ACTIVE_LEARNING.SAMPLING_FN == "batchbald":
+            batch_bald_sampler = BatchBALDSampler(dataObj=self.dataObj, cfg=self.cfg, model=clf_model, mc_dropout_iterations=self.cfg.ACTIVE_LEARNING.DROPOUT_ITERATIONS)
+            activeSet, uSet = batch_bald_sampler.sample(lSet=lSet, uSet=uSet, batch_size=self.cfg.ACTIVE_LEARNING.BUDGET_SIZE)
+
         else:
             print(f"{self.cfg.ACTIVE_LEARNING.SAMPLING_FN} is either not implemented or there is some spelling mistake.")
             raise NotImplementedError

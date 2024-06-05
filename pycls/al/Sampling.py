@@ -166,6 +166,53 @@ class CoreSetMIPSampling():
             remainSet = uSet[remainSet]
         return activeSet, remainSet
 
+class BatchBALDSampler:
+    def __init__(self, dataObj, cfg, model, mc_dropout_iterations):
+        self.dataObj = dataObj
+        self.cfg = cfg
+        self.model = model
+        self.mc_dropout_iterations = mc_dropout_iterations
+
+    def compute_joint_entropy(self, probs):
+        # Calculate joint entropy across all dropout iterations
+        avg_probs = np.mean(probs, axis=0)
+        joint_entropy = -np.sum(avg_probs * np.log(avg_probs + 1e-10), axis=1)
+        return np.sum(joint_entropy)
+
+    def sample(self, lSet, uSet, batch_size):
+        self.model.train()
+        uSetLoader = self.dataObj.getSequentialDataLoader(indexes=uSet, batch_size=1, data=self.dataObj.dataset)
+        dropout_probs = np.zeros((len(uSet), self.mc_dropout_iterations, self.cfg.MODEL.NUM_CLASSES))
+
+        # Collect dropout predictions
+        for i in range(self.mc_dropout_iterations):
+            for j, (x, _) in enumerate(uSetLoader):
+                x = x.to(self.cfg.device)
+                with torch.no_grad():
+                    outputs = self.model(x)
+                    probabilities = torch.nn.functional.softmax(outputs, dim=1)
+                    dropout_probs[j, i, :] = probabilities.cpu().numpy()
+
+        batch_indices = []
+        for _ in range(batch_size):
+            max_gain = -np.inf
+            best_idx = None
+            # Calculate mutual information for each point not in the batch
+            for idx in range(len(uSet)):
+                if idx not in batch_indices:
+                    joint_entropy = self.compute_joint_entropy(dropout_probs[batch_indices + [idx], :, :])
+                    marginal_entropy = self.compute_joint_entropy(dropout_probs[idx, :, :])
+                    info_gain = marginal_entropy - joint_entropy
+                    if info_gain > max_gain:
+                        max_gain = info_gain
+                        best_idx = idx
+            batch_indices.append(best_idx)
+
+        activeSet = uSet[batch_indices]
+        remainSet = np.delete(uSet, batch_indices)
+        return activeSet, remainSet
+
+
 class Sampling:
     """
     Here we implement different sampling methods which are used to sample

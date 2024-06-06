@@ -1,11 +1,10 @@
-EXP_NAME: 'Resnet18_ENS_1'
+# EXP_NAME: 'YOUR_EXPERIMENT_NAME' this works
 RNG_SEED: 1
 DATASET:
   NAME: CIFAR10 
   ROOT_DIR: './data'
   VAL_RATIO: 0.1
   AUG_METHOD: 'hflip'
-  SUBSET_RATIO: 0.01
 MODEL:
   TYPE: resnet18
   NUM_CLASSES: 10
@@ -15,7 +14,7 @@ OPTIM:
   LR_POLICY: cos
   LR_MULT: 0.1
   # STEPS: [0, 60, 120, 160, 200] 
-  MAX_EPOCH: 5
+  MAX_EPOCH: 200
   MOMENTUM: 0.9
   NESTEROV: True
   WEIGHT_DECAY: 0.0003
@@ -34,9 +33,7 @@ DATA_LOADER:
 CUDNN:
   BENCHMARK: True
 ACTIVE_LEARNING:
-  BUDGET_SIZE: 10
-  SAMPLING_FN: 'ensemble_var_R' # do not change this for ensemble learning
+  INIT_L_RATIO: 0.1
+  BUDGET_SIZE: 5000
+  # SAMPLING_FN: 'uncertainty'
   MAX_ITER: 5
-ENSEMBLE:
-  NUM_MODELS: 3
-  MODEL_TYPE: ['resnet18']

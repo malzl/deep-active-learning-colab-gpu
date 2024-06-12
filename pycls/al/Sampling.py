@@ -389,56 +389,63 @@ class Sampling:
         return activeSet, remainSet
 
     def ensemble_var_R(self, budgetSize, uSet, clf_models, dataset):
-        """
-        Implements ensemble variance_ratio measured as the number of disagreement in committee 
-        with respect to the predicted class. 
-        If f_m is number of members agreeing to predicted class then 
-        variance ratio(var_r) is evaludated as follows:
-        
-            var_r = 1 - (f_m / T); where T is number of commitee members
+      """
+      Implements ensemble variance_ratio measured as the number of disagreements in committee 
+      with respect to the predicted class. 
+      If f_m is number of members agreeing to predicted class then 
+      variance ratio(var_r) is evaluated as follows:
+      
+          var_r = 1 - (f_m / T); where T is number of committee members
 
-        For more details refer equation 4 in 
-        http://openaccess.thecvf.com/content_cvpr_2018/papers/Beluch_The_Power_of_CVPR_2018_paper.pdf
-        """
-        from scipy import stats
-        T = len(clf_models)
+      For more details refer equation 4 in 
+      http://openaccess.thecvf.com/content_cvpr_2018/papers/Beluch_The_Power_of_CVPR_2018_paper.pdf
+      """
+      from scipy import stats
+      import numpy as np
+      import torch
+      from tqdm import tqdm
 
-        for cmodel in clf_models:
-            cmodel.eval()
+      T = len(clf_models)
 
-        uSetLoader = self.dataObj.getSequentialDataLoader(indexes=uSet, batch_size=self.cfg.TRAIN.BATCH_SIZE, data=dataset)
-        uSetLoader.dataset.no_aug = True
-        print("len usetLoader: {}".format(len(uSetLoader)))
+      for cmodel in clf_models:
+          cmodel.eval()
 
-        temp_i = 0
-        var_r_scores = np.zeros((len(uSet), 1), dtype=float)
-        
-        for k, (x_u, _) in enumerate(tqdm(uSetLoader, desc="uSet Forward Passes through " + str(T) + " models")):
-            x_u = x_u.type(torch.FloatTensor)
-            ens_preds = np.zeros((x_u.shape[0], T), dtype=float)
-            for i in range(len(clf_models)):
-                with torch.no_grad():
-                    temp_op = clf_models[i](x_u)
-                    _, temp_pred = torch.max(temp_op, 1)
-                    temp_pred = temp_pred.numpy()
-                    ens_preds[:, i] = temp_pred
-            _, mode_cnt = stats.mode(ens_preds, 1)
-            temp_varr = 1.0 - (mode_cnt / T * 1.0)
-            var_r_scores[temp_i:temp_i + x_u.shape[0]] = temp_varr
+      uSetLoader = self.dataObj.getSequentialDataLoader(indexes=uSet, batch_size=self.cfg.TRAIN.BATCH_SIZE, data=dataset)
+      uSetLoader.dataset.no_aug = True
+      print("len usetLoader: {}".format(len(uSetLoader)))
 
-            temp_i = temp_i + x_u.shape[0]
+      temp_i = 0
+      var_r_scores = np.zeros((len(uSet), 1), dtype=float)
+      
+      for k, (x_u, _) in enumerate(tqdm(uSetLoader, desc="uSet Forward Passes through " + str(T) + " models")):
+          x_u = x_u.type(torch.FloatTensor)
+          ens_preds = np.zeros((x_u.shape[0], T), dtype=float)
+          for i in range(len(clf_models)):
+              with torch.no_grad():
+                  temp_op = clf_models[i](x_u)
+                  _, temp_pred = torch.max(temp_op, 1)
+                  temp_pred = temp_pred.cpu().numpy().reshape(-1)  # Ensure it is on the CPU and converted to a numpy array
+                  ens_preds[:, i] = temp_pred
+          _, mode_cnt = stats.mode(ens_preds, 1)
+          temp_varr = 1.0 - (mode_cnt / T * 1.0)
+          temp_varr = temp_varr.reshape(-1, 1)  # Reshape to ensure correct dimensions
+          var_r_scores[temp_i:temp_i + x_u.shape[0]] = temp_varr
 
-        var_r_scores = np.squeeze(np.array(var_r_scores))
-        print("var_r_scores: ")
-        print(var_r_scores.shape)
+          temp_i = temp_i + x_u.shape[0]
 
-        sorted_idx = np.argsort(var_r_scores)[::-1]
-        activeSet = sorted_idx[:budgetSize]
+      var_r_scores = np.squeeze(np.array(var_r_scores))
+      print("var_r_scores: ")
+      print(var_r_scores.shape)
 
-        activeSet = uSet[activeSet]
-        remainSet = uSet[sorted_idx[budgetSize:]]
-        uSetLoader.dataset.no_aug = False
-        return activeSet, remainSet
+      sorted_idx = np.argsort(var_r_scores)[::-1]
+      activeSet = sorted_idx[:budgetSize]
+
+      activeSet = uSet[activeSet]
+      remainSet = uSet[sorted_idx[budgetSize:]]
+      uSetLoader.dataset.no_aug = False
+      return activeSet, remainSet
+
+
 
     def uncertainty(self, budgetSize, lSet, uSet, model, dataset):
         """
